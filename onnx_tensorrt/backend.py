@@ -59,7 +59,7 @@ if not _config.USE_PYBIND:
 
 class TensorRTBackendRep(BackendRep):
     def __init__(self, model, device, max_batch_size=32,
-                 max_workspace_size=None, serialize_engine=False, **kwargs):
+                 max_workspace_size=None, calib=None, quantization_mode="fp32" serialize_engine=False, **kwargs):
         if not isinstance(device, Device):
             device = Device(device)
         self._set_device(device)
@@ -67,6 +67,13 @@ class TensorRTBackendRep(BackendRep):
         self.builder = trt.Builder(self._logger)
         self.network = self.builder.create_network(flags=1 << (int)(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
         self.parser = trt.OnnxParser(self.network, self._logger)
+        
+        if quantization_mode == 'fp16':
+             self.builder.fp16_mode = True
+        if quantization_mode == 'int8':
+             self.builder.int8_mode = True
+             assert(calib != None)
+             self.builder.int8_calibrator = calib
 
         if not isinstance(model, six.string_types):
             model_str = model.SerializeToString()
@@ -124,6 +131,7 @@ class TensorRTBackendRep(BackendRep):
         inputs -- Input tensor(s) as a Numpy array or list of Numpy arrays.
         """
         if isinstance(inputs, np.ndarray):
+            print("inputs is instance of np.ndarray")
             inputs = [inputs]
         outputs = self.engine.run(inputs)
         output_names = [output.name for output in self.engine.outputs]
@@ -191,13 +199,13 @@ def make_node_test_model(node, inputs, use_weights=True):
 
 class TensorRTBackend(Backend):
     @classmethod
-    def prepare(cls, model, device='CUDA:0', **kwargs):
+    def prepare(cls, model, calib = None, device='CUDA:0', **kwargs):
         """Build an engine from the given model.
         model -- An ONNX model as a deserialized protobuf, or a string or file-
                  object containing a serialized protobuf.
         """
         super(TensorRTBackend, cls).prepare(model, device, **kwargs)
-        return TensorRTBackendRep(model, device, **kwargs)
+        return TensorRTBackendRep(model, device, calib=calib, **kwargs)
     @classmethod
     def run_model(cls, model, inputs, device='CUDA:0', **kwargs):
         """Build and run an engine from the given model.
@@ -232,3 +240,4 @@ prepare         = TensorRTBackend.prepare
 run_node        = TensorRTBackend.run_node
 run_model       = TensorRTBackend.run_model
 supports_device = TensorRTBackend.supports_device
+
